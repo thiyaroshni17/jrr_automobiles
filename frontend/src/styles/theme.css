@@ -1,0 +1,30 @@
+:root {
+  --bg: #f7f8fb;
+  --surface: rgba(255, 255, 255, 0.65);
+  --text: #0c1222;
+  --muted: #5a6475;
+
+  --brand-yellow: #f4c430;
+  --brand-blue: #2b63f1;
+  --brand-red: #d61f26;
+
+  --accent: var(--brand-blue);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--accent), transparent 70%);
+  --shadow-1: 0 10px 30px rgba(0, 0, 0, 0.12);
+  --glass-blur: 14px;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0a0d14;
+  --surface: rgba(17, 20, 30, 0.6);
+  --text: #e9edf7;
+  --muted: #98a2b3;
+  --accent: #7aa2ff;
+  --shadow-1: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+html, body, #root {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
