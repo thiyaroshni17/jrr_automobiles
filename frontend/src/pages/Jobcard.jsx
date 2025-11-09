@@ -25,14 +25,6 @@ const toInputYMD = (dateLike) => {
 };
 const isYMD = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
-// JRR-YYYY-00001 parsing/building
-const parseJobNo = (s) => {
-  const m = /^JRR-(\d{4})-(\d{5})$/i.exec(String(s || "").trim());
-  if (!m) return null;
-  return { year: Number(m[1]), num: Number(m[2]) };
-};
-const buildJobNo = (year, num) => `JRR-${year}-${String(num).padStart(5, "0")}`;
-
 // Currency
 const INR = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 
@@ -164,11 +156,12 @@ export default function Jobcard() {
   const navigate = useNavigate();
   const { backendurl } = useContext(AppContent);
 
-  // Configure API base and path ONCE to prevent 404s
-  const API = backendurl || "http://localhost:5000"; // your backend origin
-  const JOB_PATH = "/jobcard"; // change if your server mounts at a different base, e.g., "/api/jobcard"
+  // Use absolute backend base including /jrr so calls don’t hit :3000 and 404
+  const API = backendurl || "http://localhost:5000/jrr"; // keep /jrr here to match your server mount
+  // Your routes: POST /jobcard/create, GET /jobcard/list/:id, PUT /jobcard/update/:id, DELETE /jobcard/delete/:id
 
-  
+  const [theme, setTheme] = useState("light");
+  useEffect(() => { document.documentElement.setAttribute("data-theme", theme); }, [theme]);
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -222,35 +215,16 @@ export default function Jobcard() {
     }
   }, [form.jobStatus]);
 
-  const assignNextJobNo = async () => {
-    try {
-      const res = await axios.get(`${API}${JOB_PATH}/list`);
-      const list = Array.isArray(res.data?.data) ? res.data.data : [];
-      const year = new Date().getFullYear();
-      let max = 0;
-      list.forEach((jc) => {
-        const p = parseJobNo(jc.jobcardNo || jc.jobcardID);
-        if (p && p.year === year) max = Math.max(max, p.num);
-      });
-      const next = buildJobNo(year, max + 1 || 1);
-      setForm((f) => (f.jobcardNo ? f : { ...f, jobcardNo: next }));
-    } catch {
-      const year = new Date().getFullYear();
-      const seed = Date.now() % 100000;
-      setForm((f) => (f.jobcardNo ? f : { ...f, jobcardNo: buildJobNo(year, seed) }));
-    }
-  };
-
   useEffect(() => {
     const load = async () => {
       if (isCreate) {
-        await assignNextJobNo();
         setForm((f) => ({ ...f, jobStatus: autoStatus }));
         return;
       }
       setLoading(true); setErr("");
       try {
-        const res = await axios.get(`${API}${JOB_PATH}/${id}`);
+        // GET /jobcard/list/:id
+        const res = await axios.get(`${API}/jobcard/list/${id}`);
         const d = res.data?.data || {};
         const sparesDB = Array.isArray(d.spares)
           ? d.spares.map((s) => ({
@@ -294,7 +268,7 @@ export default function Jobcard() {
     };
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, isCreate, API, JOB_PATH]);
+  }, [id, isCreate, API]);
 
   // Handlers (renumber only on add/remove)
   const onField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -330,55 +304,66 @@ export default function Jobcard() {
     return "";
   };
 
-  // Payload mapping (align keys with controller)
-  const toPayload = () => ({
-    jobcardNo: String(form.jobcardNo || "").trim(),
-    status: String(form.jobStatus || "pending").toLowerCase(), // controller reads body.status
-    date: toDMY(form.date),
-    name: String(form.name || "").trim(),
-    mobileno: String(form.mobileno || "").trim(),
-    regno: String(form.regno || "").trim(),
-    address: String(form.address || "").trim(),
-    email: String(form.email || "").trim(),
-    vehicleModel: String(form.vehicleModel || "").trim(),
-    brand: String(form.brand || "").trim(),
-    fuelType: String(form.fuelType || "").trim(),
-    kilometers: Number(form.kilometer || 0), // controller expects kilometers
-    remarks: String(form.remarks || "").trim(),
-    advancePaid: Number(form.advancePaid || 0),
-    spares: (form.spares || []).map((s, idx) => ({
-      sno: idx + 1,
-      description: String(s.description || "").trim(),
-      quantity: Number(s.quantity || 0),
-      amount: Number(s.amount || 0),
-      done: !!s.done
-    })),
-    labours: (form.labours || []).map((l, idx) => ({
-      sno: idx + 1,
-      description: String(l.description || "").trim(),
-      quantity: Number(l.quantity || 0),
-      amount: Number(l.amount || 0),
-      done: !!l.done
-    }))
-  });
+  // Payload mapping (align with controller/model)
+  const toPayload = () => {
+    const uiStatus = String(form.jobStatus || "pending").toLowerCase();
+    const status = uiStatus === "closed" ? "completed" : uiStatus; // model enum: pending|completed
+    const ft = String(form.fuelType || "").toLowerCase();
+    return {
+      jobcardNo: String(form.jobcardNo || "").trim(), // backend will set this on create if needed
+      status,
+      date: toDMY(form.date),
+      name: String(form.name || "").trim(),
+      mobileno: String(form.mobileno || "").trim(),
+      regno: String(form.regno || "").trim(),
+      address: String(form.address || "").trim(),
+      email: String(form.email || "").trim(),
+      vehicleModel: String(form.vehicleModel || "").trim(),
+      brand: String(form.brand || "").trim(),
+      fuelType: ft,
+      kilometers: Number(form.kilometer || 0),
+      remarks: String(form.remarks || "").trim(),
+      advancePaid: Number(form.advancePaid || 0),
+      spares: (form.spares || []).map((s, idx) => ({
+        sno: idx + 1,
+        description: String(s.description || "").trim(),
+        quantity: Number(s.quantity || 0),
+        amount: Number(s.amount || 0),
+        done: !!s.done
+      })),
+      labours: (form.labours || []).map((l, idx) => ({
+        sno: idx + 1,
+        description: String(l.description || "").trim(),
+        quantity: Number(l.quantity || 0),
+        amount: Number(l.amount || 0),
+        done: !!l.done
+      }))
+    };
+  };
 
   const onSave = async () => {
     setSaving(true); setMsg(""); setErr("");
     try {
-      if (isCreate && !String(form.jobcardNo).trim()) {
-        await assignNextJobNo();
-      }
       const v = validate();
       if (v) { setErr(v); return; }
       const payload = toPayload();
       if (isCreate) {
-        const res = await axios.post(`${API}${JOB_PATH}/create`, payload);
-        const newId = res?.data?.data?._id;
+        // POST /jobcard/create
+        const res = await axios.post(`${API}/jobcard/create`, payload);
+        const doc = res?.data?.data;
         setMsg("Created");
-        if (newId) navigate(`/jobcard/${newId}`, { replace: true });
+        if (doc?._id) {
+          if (doc.jobcardNo) setForm((f) => ({ ...f, jobcardNo: doc.jobcardNo }));
+          navigate(`/jobcard/${doc._id}`, { replace: true });
+        }
       } else {
-        await axios.put(`${API}${JOB_PATH}/update/${id}`, payload);
+        // PUT /jobcard/update/:id
+        await axios.put(`${API}/jobcard/update/${id}`, payload);
         setMsg("Saved");
+        // reload to reflect backend-assigned fields
+        const check = await axios.get(`${API}/jobcard/list/${id}`);
+        const d = check?.data?.data;
+        if (d?.jobcardNo) setForm((f) => ({ ...f, jobcardNo: d.jobcardNo }));
       }
     } catch (e) {
       setErr(e?.response?.data?.message || e?.message || (isCreate ? "Create failed" : "Save failed"));
@@ -391,21 +376,19 @@ export default function Jobcard() {
     if (isCreate) { navigate("/jobcardhome"); return; }
     if (!window.confirm("Delete this job card?")) return;
     try {
-      await axios.delete(`${API}${JOB_PATH}/delete/${id}`);
+      // DELETE /jobcard/delete/:id
+      await axios.delete(`${API}/jobcard/delete/${id}`);
       navigate("/jobcardhome", { replace: true });
     } catch (e) {
       setErr(e?.response?.data?.message || e?.message || "Delete failed");
     }
   };
 
-  // PDF
   const onDownloadPdf = async () => {
     try {
       const { jsPDF } = await ensureJsPdf();
       const doc = new jsPDF("p", "pt", "a4");
-      const totalsNow = totals;
-      const financialsNow = financials;
-      buildJobcardPdf(doc, form, totalsNow, financialsNow);
+      buildJobcardPdf(doc, form, totals, financials);
       const fname = `${form.jobcardNo || "JobCard"}-${form.regno || ""}.pdf`.replace(/\s+/g, "_");
       doc.save(fname);
     } catch {
@@ -502,7 +485,7 @@ export default function Jobcard() {
         </div>
         <div className="actions">
           <button className="btn-ghost" onClick={() => navigate("/jobcardhome")}>← Back</button>
-
+          
           <button className="btn" onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save"}</button>
           <button className="btn-ghost" type="button" onClick={onDownloadPdf}>Download PDF</button>
           <button className="btn-ghost" type="button" onClick={onPrintPdf}>Print PDF</button>
@@ -576,7 +559,7 @@ export default function Jobcard() {
               <option value="">Select</option>
               <option value="petrol">Petrol</option>
               <option value="diesel">Diesel</option>
-              <option value="EV">EV</option>
+              <option value="ev">EV</option>
             </select>
           </div>
         </div>

@@ -23,12 +23,7 @@ Router.get('/jobcard/list', ctrl.listJobCards);
 Router.get('/jobcard/list/:id', ctrl.getJobCardById);
 Router.put('/jobcard/update/:id', ctrl.updateJobCard);
 Router.delete('/jobcard/delete/:id', ctrl.deleteJobCard);
-Router.post('/jobcard/:id/spares', ctrl.addSpare);
-Router.patch('/jobcard/:id/spares/update/:itemId', ctrl.updateSpare);
-Router.delete('/jobcard/:id/spares/delete/:itemId', ctrl.deleteSpare);
-Router.post('/jobcard/:id/labours', ctrl.addLabour);
-Router.patch('/jobcard/:id/labours/update/:itemId', ctrl.updateLabour);
-Router.delete('/jobcard/:id/labours/delete/:itemId', ctrl.deleteLabour);
+
 
 Router.post("/pettycash/create", createPettyCash);
 Router.put("/pettycash/update/:id", updatePettyCash);
