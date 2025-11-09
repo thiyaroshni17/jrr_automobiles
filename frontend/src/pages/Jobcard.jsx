@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState, useContext } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
 import { AppContent } from "../context/context";
+import assets from "../assets/assets";
 
 // Row factories
 const emptySpare = () => ({ description: "", quantity: 1, amount: "", done: false });
@@ -426,7 +427,12 @@ export default function Jobcard() {
         .jobcard-page { min-height: 100vh; background: var(--bg); color: var(--text); padding: 16px 20px 32px; overflow-x: hidden; }
         .topbar { display: grid; grid-template-columns: 1fr auto; align-items: start; margin-bottom: 12px; gap: 12px; }
         .brand { display: flex; align-items: center; gap: 12px; }
-        .logo { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: var(--brand); color: var(--btn-contrast); font-weight: 800; letter-spacing: 0.5px; box-shadow: var(--shadow); }
+        .logo { display: block;
+  height: 44px;
+  width: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.25));
+  user-select: none; }
         .company { font-size: 18px; font-weight: 800; }
         .subtitle { font-size: 12px; color: var(--muted); }
 
@@ -467,7 +473,14 @@ export default function Jobcard() {
       <div className="topbar">
         <div>
           <div className="brand">
-            <div className="logo">JRR</div>
+            <img
+    src={assets.logo}
+    alt="JRR Automobiles"
+    className="logo"
+    height="56"
+    width="auto"
+    draggable="false"
+  />
             <div>
               <div className="company">JRR Automobiles</div>
               <div className="subtitle">{isCreate ? "New Job Card" : "Edit Job Card"}</div>
