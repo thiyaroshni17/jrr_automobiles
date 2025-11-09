@@ -15,21 +15,9 @@ const Logo = () => (
 );
 
 export default function App() {
-  const systemPrefersDark = useMemo(
-    () => window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches,
-    []
-  );
+  
 
-  const [theme, setTheme] = useState(
-    localStorage.getItem("theme") || (systemPrefersDark ? "dark" : "light")
-  );
-
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("theme", theme);
-  }, [theme]);
-
-  const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+  
 
   return (
     <div className="page">
@@ -52,10 +40,7 @@ export default function App() {
           </div>
         </div>
         <div className="actions">
-          <button className="btn ghost" onClick={toggleTheme} aria-label="Toggle theme">
-            <span className="icon">{theme === "dark" ? "🌙" : "🌞"}</span>
-            <span className="hide-sm">{theme === "dark" ? "Dark" : "Light"} mode</span>
-          </button>
+         
           <a className="btn solid" href="/login" aria-label="Login">
             Login
           </a>
@@ -73,9 +58,7 @@ export default function App() {
           </p>
           <div className="cta-row">
             <a className="btn solid big" href="/login">Enter workspace</a>
-            <button className="btn ghost big" onClick={toggleTheme}>
-              Toggle {theme === "dark" ? "Light" : "Dark"}
-            </button>
+            
           </div>
 
           <ul className="highlights">

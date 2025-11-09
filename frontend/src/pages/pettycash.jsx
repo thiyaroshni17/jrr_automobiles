@@ -23,11 +23,7 @@ export default function PettyCashPage() {
   const navigate = useNavigate();
   const { backendurl } = useContext(AppContent);
 
-  // Theme (no localStorage)
-  const [theme, setTheme] = useState("light");
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
+  
 
   // State
   const [loading, setLoading] = useState(false);
@@ -296,9 +292,7 @@ export default function PettyCashPage() {
         </div>
         <div className="actions">
           <button className="btn-ghost" onClick={() => navigate("/pettycashhome")}>← Back</button>
-          <button className="btn-ghost" onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}>
-            {theme === "dark" ? "Light Theme" : "Dark Theme"}
-          </button>
+          
           <button className="btn" onClick={onSave} disabled={saving}>
             {saving ? "Saving..." : "Save"}
           </button>

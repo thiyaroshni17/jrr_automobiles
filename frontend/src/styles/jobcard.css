@@ -1,0 +1,232 @@
+/* Jobcard page container */
+.jobcard-page {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  padding: 16px 20px 32px;
+  overflow-x: hidden;
+}
+
+/* Top bar */
+.topbar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* If you keep a text badge; replace with an <img.logo> if needed */
+.logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  box-shadow: var(--shadow-1);
+}
+
+.company {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Actions row */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Buttons */
+.btn, .btn-ghost, .btn-danger {
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.15s ease;
+}
+
+.btn {
+  background: var(--accent);
+  color: #fff;
+}
+.btn:hover { filter: brightness(0.96); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--text), transparent 80%);
+}
+.btn-ghost:hover { background: color-mix(in srgb, var(--text), transparent 92%); }
+
+.btn-danger {
+  background: #ef4444;
+  color: #fff;
+}
+
+/* Panels */
+.panel {
+  background: var(--surface);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid color-mix(in srgb, var(--text), transparent 88%);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: var(--shadow-1);
+  margin-bottom: 14px;
+}
+
+/* Form grids */
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.row label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.row input,
+.row select,
+.row textarea {
+  height: 42px;
+  border: 1px solid color-mix(in srgb, var(--text), transparent 88%);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 0 12px;
+  outline: none;
+  width: 100%;
+  max-width: 100%;
+}
+
+.row textarea {
+  height: 90px;
+  padding-top: 10px;
+}
+
+/* Read-only preview fields */
+.input-readonly {
+  background: color-mix(in srgb, var(--bg), var(--text) 2%);
+  color: var(--text);
+}
+
+/* Table wrapper */
+.table-wrap {
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--text), transparent 88%);
+  border-radius: 14px;
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+
+/* Table */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;           /* force wrap instead of overflow */
+}
+
+thead th {
+  text-align: left;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--text), transparent 94%);
+  border-bottom: 1px solid color-mix(in srgb, var(--text), transparent 88%);
+}
+
+tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text), transparent 90%);
+  font-size: 14px;
+  vertical-align: top;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+tbody tr:hover {
+  background: color-mix(in srgb, var(--text), transparent 96%);
+}
+
+tfoot td {
+  font-weight: 700;
+  padding: 10px 12px;
+}
+
+/* Table inputs fit cells */
+tbody td > input,
+tbody td > select {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Right alignment helper */
+.right { text-align: right; }
+
+/* Status badge (optional) */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid color-mix(in srgb, var(--text), transparent 85%);
+  background: color-mix(in srgb, var(--accent), transparent 90%);
+  color: var(--text);
+}
+
+/* Responsive: stack table rows into cards on small screens */
+@media (max-width: 900px) {
+  table, thead, tbody, th, td, tr { display: block; }
+  thead { display: none; }
+
+  tbody tr {
+    border: 1px solid color-mix(in srgb, var(--text), transparent 88%);
+    border-radius: 12px;
+    padding: 10px;
+    margin: 10px 10px 12px;
+    box-shadow: var(--shadow-1);
+    background: var(--bg);
+  }
+
+  tbody td { border: none; padding: 6px 0; }
+  .actions { flex-wrap: wrap; }
+}
+
+/* Avoid horizontal scroll caused by long words or wide inputs */
+.jobcard-page { overflow-x: hidden; }

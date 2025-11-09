@@ -7,15 +7,16 @@ import assets from "../assets/assets";
 
 const emptyEntry = () => ({
   name: "",
-  vehicle: "",
-  modeOfService: "",
-  modeOfPayment: "",
-  mobileNo: "",
   regNo: "",
+  mobileNo: "",
+  vehicleName: "",
+  serviceType: "",     // "bodyshop" | "mechanic"
+  modeOfPayment: "",   // "gpay" | "cash" | "card"
+  jobcardNo: "",
   amount: ""
 });
 
-// Local-safe date -> YYYY-MM-DD (avoids timezone shifting issues)
+// Local-safe date -> YYYY-MM-DD for <input type="date">
 const toInputYMD = (dateLike) => {
   if (!dateLike) return "";
   const d = new Date(dateLike);
@@ -23,27 +24,29 @@ const toInputYMD = (dateLike) => {
   const tz = d.getTimezoneOffset() * 60000;
   return new Date(d.getTime() - tz).toISOString().slice(0, 10);
 };
+
+// Convert YYYY-MM-DD -> DD-MM-YYYY for API payload
+const toDMY = (ymd) => {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return "";
+  const [y, m, d] = ymd.split("-");
+  return `${d}-${m}-${y}`;
+};
 const isYMD = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
 export default function BodyShopPage() {
-  const { id } = useParams();            // undefined at /bodyshop/create
+  const { id } = useParams(); // undefined at /bodyshop/create
   const isCreate = !id;
   const navigate = useNavigate();
   const { backendurl } = useContext(AppContent);
 
-  // Theme (no localStorage)
-  const [theme, setTheme] = useState("light");
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
+ 
 
   // State
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
-  // rows failing required: vehicle, modeOfService, amount
-  const [invalidRows, setInvalidRows] = useState([]);
+  const [invalidRows, setInvalidRows] = useState([]); // rows missing requireds
 
   const [form, setForm] = useState({
     date: toInputYMD(new Date()),
@@ -52,11 +55,7 @@ export default function BodyShopPage() {
   });
 
   const computedTotal = useMemo(
-    () =>
-      (form.entries || []).reduce(
-        (sum, e) => sum + (Number(e.amount) || 0),
-        0
-      ),
+    () => (form.entries || []).reduce((sum, e) => sum + (Number(e.amount) || 0), 0),
     [form.entries]
   );
 
@@ -75,11 +74,12 @@ export default function BodyShopPage() {
             Array.isArray(d.entries) && d.entries.length
               ? d.entries.map((e) => ({
                   name: e.name || "",
-                  vehicle: e.vehicle || "",
-                  modeOfService: e.modeOfService || "",
-                  modeOfPayment: e.modeOfPayment || "",
-                  mobileNo: e.mobileNo || "",
-                  regNo: e.regNo || "",
+                  regNo: e.regNo || e.regno || "",
+                  mobileNo: e.mobileNo || e.mobileno || "",
+                  vehicleName: e.vehicleName || e["vehicle name"] || "",
+                  serviceType: e.serviceType || e["service type"] || "",
+                  modeOfPayment: e.modeOfPayment || e["mode of payment"] || "",
+                  jobcardNo: e.jobcardNo || e.Jobcardno || "",
                   amount: e.amount ?? ""
                 }))
               : [emptyEntry()],
@@ -95,13 +95,14 @@ export default function BodyShopPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, isCreate, backendurl]);
 
-  // Duplicate date check -> redirect to edit if exists
+  // Duplicate date check -> redirect to edit if exists (optional safeguard)
   const checkingRef = useRef(false);
   const checkExistingByDate = async (yyyy_mm_dd, opts = { prompt: true }) => {
     if (checkingRef.current || !isCreate || !isYMD(yyyy_mm_dd)) return false;
     checkingRef.current = true;
     try {
-      const url = `${backendurl}/bodyshop/list?start=${yyyy_mm_dd}&end=${yyyy_mm_dd}`;
+      const dmy = toDMY(yyyy_mm_dd);
+      const url = `${backendurl}/bodyshop/list?start=${dmy}&end=${dmy}`;
       const res = await axios.get(url);
       const list = Array.isArray(res.data?.data) ? res.data.data : [];
       if (list.length > 0 && list[0]?._id) {
@@ -114,6 +115,7 @@ export default function BodyShopPage() {
       }
       return false;
     } catch (e) {
+      // silent/log
       console.error("Date check failed", e?.response?.data || e.message);
       return false;
     } finally {
@@ -123,7 +125,7 @@ export default function BodyShopPage() {
 
   // Handlers
   const onDateChange = async (e) => {
-    const value = e.target.value; // already YYYY-MM-DD
+    const value = e.target.value; // YYYY-MM-DD
     setForm((f) => ({ ...f, date: value }));
     if (isCreate && isYMD(value)) {
       await checkExistingByDate(value, { prompt: true });
@@ -147,7 +149,7 @@ export default function BodyShopPage() {
       entries: (f.entries || []).filter((_, i) => i !== idx)
     }));
 
-  // Validation: require date, and for each row: vehicle, modeOfService, and amount > 0
+  // Validation: require date, and for each row: serviceType, vehicleName, amount > 0
   const validate = () => {
     const issues = [];
     if (!form.date || !isYMD(form.date)) {
@@ -155,13 +157,13 @@ export default function BodyShopPage() {
       return { ok: false, invalidRows: issues };
     }
     (form.entries || []).forEach((e, i) => {
-      const vehicleMissing = !String(e.vehicle || "").trim();
-      const serviceMissing = !String(e.modeOfService || "").trim();
+      const serviceMissing = !String(e.serviceType || "").trim();
+      const vehicleMissing = !String(e.vehicleName || "").trim();
       const amountMissing = !(Number(e.amount) > 0);
-      if (vehicleMissing || serviceMissing || amountMissing) issues.push(i);
+      if (serviceMissing || vehicleMissing || amountMissing) issues.push(i);
     });
     if (issues.length > 0) {
-      setErr("Service Type, Vehicle, and Amount are required for all entries");
+      setErr("Service Type, Vehicle Name, and Amount are required for all entries");
       setInvalidRows(issues);
       return { ok: false, invalidRows: issues };
     }
@@ -170,18 +172,20 @@ export default function BodyShopPage() {
     return { ok: true, invalidRows: [] };
   };
 
+  // Payload mapping (controller expects DD-MM-YYYY)
   const toPayload = () => ({
-    date: form.date, // keep raw YYYY-MM-DD
+    date: toDMY(form.date),
     entries: (form.entries || []).map((e) => ({
       name: String(e.name || "").trim(),
-      vehicle: String(e.vehicle || "").trim(),
-      modeOfService: String(e.modeOfService || "").trim(),
-      modeOfPayment: String(e.modeOfPayment || "").trim(),
-      mobileNo: String(e.mobileNo || "").trim(),
-      regNo: String(e.regNo || "").trim(),
+      regno: String(e.regNo || "").trim(),
+      mobileno: String(e.mobileNo || "").trim(),
+      "service type": String(e.serviceType || "").trim(),
+      "mode of payment": String(e.modeOfPayment || "").trim(),
+      "vehicle name": String(e.vehicleName || "").trim(),
+      Jobcardno: String(e.jobcardNo || "").trim(),
       amount: Number(e.amount || 0)
     }))
-    // sno auto-filled; totalDailyAmount recomputed server-side
+    // sno auto-filled server-side; totals recomputed server-side
   });
 
   const onSave = async () => {
@@ -191,7 +195,7 @@ export default function BodyShopPage() {
       const v = validate();
       if (!v.ok) return;
 
-      // Prevent creating a duplicate date; re-check just before save
+      // Prevent duplicate date on create
       if (isCreate) {
         const exists = await checkExistingByDate(form.date, { prompt: true });
         if (exists) return;
@@ -234,7 +238,7 @@ export default function BodyShopPage() {
 
   const invalidStyle = (idx, key) =>
     invalidRows.includes(idx) &&
-    (key === "vehicle" || key === "modeOfService" || key === "amount")
+    (key === "serviceType" || key === "vehicleName" || key === "amount")
       ? { borderColor: "#ef4444" }
       : {};
 
@@ -265,8 +269,6 @@ export default function BodyShopPage() {
           --danger: #f87171;
           --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 1px 3px rgba(0,0,0,0.5);
         }
-
-        /* Page/layout */
         .bodyshop-page { min-height: 100vh; background: var(--bg); color: var(--text); padding: 16px 20px 32px; }
         .topbar { display: grid; grid-template-columns: 1fr auto; align-items: center; margin-bottom: 12px; gap: 12px; }
         .brand { display: flex; align-items: center; gap: 12px; }
@@ -287,7 +289,6 @@ export default function BodyShopPage() {
         .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
         .btn-ghost:hover { background: rgba(148,163,184,0.12); }
         .btn-danger { background: var(--danger); color: #fff; }
-
         .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); margin-bottom: 14px; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .row { display: flex; flex-direction: column; gap: 6px; }
@@ -297,12 +298,11 @@ export default function BodyShopPage() {
           background: var(--bg); color: var(--text); padding: 0 12px; outline: none; width: 100%;
         }
 
-        /* Table becomes responsive without horizontal scroll */
+        /* Responsive table: no horizontal scroll; stack as cards on narrow screens */
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
         th, td { border: 1px solid var(--border); padding: 8px; text-align: left; vertical-align: top; word-wrap: break-word; }
         tfoot td { font-weight: 700; }
 
-        /* Responsive rules: stack rows as cards on narrow screens */
         @media (max-width: 980px) {
           .grid-2 { grid-template-columns: 1fr; }
           table, thead, tbody, th, td, tr { display: block; }
@@ -315,27 +315,22 @@ export default function BodyShopPage() {
             box-shadow: var(--shadow);
             background: var(--bg);
           }
-          tbody td {
-            border: none;
-            padding: 6px 0;
-          }
-          tbody td > input, tbody td > select {
-            width: 100%;
-          }
+          tbody td { border: none; padding: 6px 0; }
+          tbody td > input, tbody td > select { width: 100%; }
           tfoot tr { display: grid; grid-template-columns: 1fr; }
         }
       `}</style>
 
       <div className="topbar">
         <div className="brand">
-          <img
-              src={assets.logo}
-              alt="JRR Automobiles"
-              className="logo"
-              height="56"
-              width="auto"
-              draggable="false"
-            />
+         <img
+                      src={assets.logo}
+                      alt="JRR Automobiles"
+                      className="logo"
+                      height="56"
+                      width="auto"
+                      draggable="false"
+                    />
           <div>
             <div className="company">JRR Automobiles</div>
             <div className="subtitle">{isCreate ? "New Body Shop" : "Edit Body Shop"}</div>
@@ -343,9 +338,7 @@ export default function BodyShopPage() {
         </div>
         <div className="actions">
           <button className="btn-ghost" onClick={() => navigate("/bodyshophome")}>← Back</button>
-          <button className="btn-ghost" onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}>
-            {theme === "dark" ? "Light Theme" : "Dark Theme"}
-          </button>
+          
           <button className="btn" onClick={onSave} disabled={saving}>
             {saving ? "Saving..." : "Save"}
           </button>
@@ -375,11 +368,12 @@ export default function BodyShopPage() {
               <tr>
                 <th style={{ width: 60 }}>S.No</th>
                 <th>Name</th>
+                <th>Reg No</th>
+                <th>Mobile No</th>
                 <th>Vehicle</th>
                 <th>Service Type</th>
                 <th>Payment</th>
-                <th>Mobile No</th>
-                <th>Reg No</th>
+                <th>JobCard No</th>
                 <th>Amount (₹)</th>
                 <th>Actions</th>
               </tr>
@@ -397,23 +391,37 @@ export default function BodyShopPage() {
                   </td>
                   <td>
                     <input
-                      value={e.vehicle}
-                      onChange={(ev) => onEntryChange(idx, "vehicle", ev.target.value)}
+                      value={e.regNo}
+                      onChange={(ev) => onEntryChange(idx, "regNo", ev.target.value.toUpperCase())}
+                      placeholder="TN00AB1234"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      value={e.mobileNo}
+                      onChange={(ev) => onEntryChange(idx, "mobileNo", ev.target.value)}
+                      placeholder="Mobile No"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      value={e.vehicleName}
+                      onChange={(ev) => onEntryChange(idx, "vehicleName", ev.target.value)}
                       placeholder="Vehicle"
                       required
-                      style={invalidStyle(idx, "vehicle")}
+                      style={invalidStyle(idx, "vehicleName")}
                     />
                   </td>
                   <td>
                     <select
-                      value={e.modeOfService}
-                      onChange={(ev) => onEntryChange(idx, "modeOfService", ev.target.value)}
+                      value={e.serviceType}
+                      onChange={(ev) => onEntryChange(idx, "serviceType", ev.target.value)}
                       required
-                      style={invalidStyle(idx, "modeOfService")}
+                      style={invalidStyle(idx, "serviceType")}
                     >
                       <option value="">Select</option>
                       <option value="mechanic">Mechanic</option>
-                      <option value="body shop">Body Shop</option>
+                      <option value="bodyshop">Body Shop</option>
                     </select>
                   </td>
                   <td>
@@ -429,16 +437,9 @@ export default function BodyShopPage() {
                   </td>
                   <td>
                     <input
-                      value={e.mobileNo}
-                      onChange={(ev) => onEntryChange(idx, "mobileNo", ev.target.value)}
-                      placeholder="Mobile No"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      value={e.regNo}
-                      onChange={(ev) => onEntryChange(idx, "regNo", ev.target.value.toUpperCase())}
-                      placeholder="TN00AB1234"
+                      value={e.jobcardNo}
+                      onChange={(ev) => onEntryChange(idx, "jobcardNo", ev.target.value.toUpperCase())}
+                      placeholder="JRR-2025-00001"
                     />
                   </td>
                   <td>
@@ -460,7 +461,7 @@ export default function BodyShopPage() {
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={7}>Total</td>
+                <td colSpan={8}>Total</td>
                 <td colSpan={2}>₹ {computedTotal.toLocaleString("en-IN")}</td>
               </tr>
             </tfoot>

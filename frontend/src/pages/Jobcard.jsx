@@ -1,317 +1,511 @@
-// JobcardPage.jsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+// src/pages/Jobcard.jsx
+import React, { useEffect, useMemo, useState, useContext } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
-import { useContext } from "react";
 import { AppContent } from "../context/context";
-import assets from "../assets/assets";
 
+// Row factories
+const emptySpare = () => ({ description: "", quantity: 1, amount: "", done: false });
+const emptyLabour = () => ({ description: "", quantity: 1, amount: "", done: false });
 
+// YYYY-MM-DD -> DD-MM-YYYY
+const toDMY = (ymd) => {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return "";
+  const [y, m, d] = ymd.split("-");
+  return `${d}-${m}-${y}`;
+};
 
+// any date-like -> YYYY-MM-DD
+const toInputYMD = (dateLike) => {
+  if (!dateLike) return "";
+  const d = new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return "";
+  const tz = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+};
+const isYMD = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
-const emptyService = () => ({ description: "", amount: "" });
+// JRR-YYYY-00001 parsing/building
+const parseJobNo = (s) => {
+  const m = /^JRR-(\d{4})-(\d{5})$/i.exec(String(s || "").trim());
+  if (!m) return null;
+  return { year: Number(m[1]), num: Number(m[2]) };
+};
+const buildJobNo = (year, num) => `JRR-${year}-${String(num).padStart(5, "0")}`;
 
-export default function JobcardPage() {
-  const { id } = useParams(); // undefined for /jobcard/new
+// Currency
+const INR = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
+
+// Renumber helpers
+const renumber = (rows = []) => rows.map((r, idx) => ({ ...r, sno: idx + 1 }));
+
+// jsPDF lazy load
+const ensureJsPdf = async () => {
+  if (window.jspdf && window.jspdf.jsPDF && window.jspdfAutoTable) return window.jspdf;
+  await new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js";
+    s.onload = res; s.onerror = rej; document.head.appendChild(s);
+  });
+  await new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js";
+    s.onload = res; s.onerror = rej; document.head.appendChild(s);
+  });
+  return window.jspdf;
+};
+
+// Build PDF (no work-done/status)
+const buildJobcardPdf = (doc, form, totals, financials) => {
+  const margin = 36;
+  let y = margin;
+
+  const dmy = toDMY(form.date) || "-";
+  const jobno = String(form.jobcardNo || "-");
+  const name = String(form.name || "-");
+  const mobile = String(form.mobileno || "-");
+  const regno = String(form.regno || "-");
+  const address = String(form.address || "-");
+  const email = String(form.email || "-");
+  const model = String(form.vehicleModel || "-");
+  const brand = String(form.brand || "-");
+  const fuel = String(form.fuelType || "-");
+  const km = String(form.kilometer || "0");
+  const remarks = String(form.remarks || "-");
+
+  const spares = Array.isArray(form.spares) ? form.spares : [];
+  const labours = Array.isArray(form.labours) ? form.labours : [];
+
+  doc.setFont("helvetica", "bold"); doc.setFontSize(16);
+  doc.text("JRR Automobiles - Job Card", margin, y);
+  doc.setFontSize(10); doc.setFont("helvetica", "normal");
+  doc.text(`Job Card No: ${jobno}`, 420, y, { align: "left" });
+  y += 16;
+  doc.text(`Date: ${dmy}`, 420, y, { align: "left" });
+  y += 10;
+
+  doc.setFont("helvetica", "bold"); doc.text("Customer", margin, y);
+  doc.setFont("helvetica", "normal"); y += 12;
+  doc.text(`Name: ${name}`, margin, y); y += 12;
+  doc.text(`Mobile: ${mobile}`, margin, y); y += 12;
+  doc.text(`Reg No: ${regno}`, margin, y); y += 12;
+  doc.text(`Email: ${email}`, margin, y); y += 12;
+  doc.text(`Address: ${address}`, margin, y);
+
+  let rightY = margin + 12;
+  doc.setFont("helvetica", "bold"); doc.text("Vehicle", 320, margin);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Model: ${model}`, 320, rightY); rightY += 12;
+  doc.text(`Brand: ${brand}`, 320, rightY); rightY += 12;
+  doc.text(`Fuel: ${fuel}`, 320, rightY); rightY += 12;
+  doc.text(`Kilometers: ${km}`, 320, rightY); rightY += 12;
+
+  const blockEnd = Math.max(y, rightY);
+  y = blockEnd + 14;
+
+  doc.setFont("helvetica", "bold"); doc.text("Remarks", margin, y);
+  doc.setFont("helvetica", "normal"); y += 12;
+  const remarksLines = doc.splitTextToSize(remarks, 540);
+  doc.text(remarksLines, margin, y);
+  y += remarksLines.length * 12 + 6;
+
+  if (spares.length) {
+    doc.setFont("helvetica", "bold"); doc.text("Spares", margin, y); doc.setFont("helvetica", "normal");
+    y += 6;
+    doc.autoTable({
+      startY: y + 6,
+      head: [["S.No", "Description", "Amount", "Qty", "Row Total"]],
+      body: spares.map((s, i) => {
+        const amt = Number(s.amount || 0);
+        const qty = Number(s.quantity ?? 1);
+        const row = Math.max(0, amt * qty);
+        return [String((s.sno ?? i + 1)), String(s.description || "-"), INR.format(amt), String(qty), INR.format(row)];
+      }),
+      styles: { font: "helvetica", fontSize: 9, cellPadding: 5 },
+      columnStyles: { 0: { cellWidth: 40 }, 2: { cellWidth: 80, halign: "right" }, 3: { cellWidth: 40, halign: "right" }, 4: { cellWidth: 90, halign: "right" } },
+      headStyles: { fillColor: [14, 165, 233] }
+    });
+    y = doc.lastAutoTable.finalY + 10;
+  }
+
+  if (labours.length) {
+    doc.setFont("helvetica", "bold"); doc.text("Labour", margin, y); doc.setFont("helvetica", "normal");
+    y += 6;
+    doc.autoTable({
+      startY: y + 6,
+      head: [["S.No", "Description", "Amount", "Qty", "Row Total"]],
+      body: labours.map((l, i) => {
+        const amt = Number(l.amount || 0);
+        const qty = Number(l.quantity ?? 1);
+        const row = Math.max(0, amt * qty);
+        return [String((l.sno ?? i + 1)), String(l.description || "-"), INR.format(amt), String(qty), INR.format(row)];
+      }),
+      styles: { font: "helvetica", fontSize: 9, cellPadding: 5 },
+      columnStyles: { 0: { cellWidth: 40 }, 2: { cellWidth: 80, halign: "right" }, 3: { cellWidth: 40, halign: "right" }, 4: { cellWidth: 90, halign: "right" } },
+      headStyles: { fillColor: [14, 165, 233] }
+    });
+    y = doc.lastAutoTable.finalY + 10;
+  }
+
+  doc.setFont("helvetica", "bold"); doc.text("Summary", margin, y);
+  doc.setFont("helvetica", "normal"); y += 12;
+  doc.text(`Spares Total: ${INR.format(totals.spares)}`, margin, y); y += 12;
+  doc.text(`Labour Total: ${INR.format(totals.labours)}`, margin, y); y += 12;
+  doc.setFont("helvetica", "bold");
+  doc.text(`Grand Total: ${INR.format(totals.grand)}`, margin, y); y += 14;
+  doc.setFont("helvetica", "normal");
+  doc.text(`Advance Paid: ${INR.format(financials.advance)}`, margin, y); y += 12;
+  doc.text(`Balance: ${INR.format(financials.balance)}`, margin, y);
+};
+
+export default function Jobcard() {
+  const { id } = useParams();
   const isCreate = !id;
   const navigate = useNavigate();
-  const printRef = useRef(null);
+  const { backendurl } = useContext(AppContent);
 
-  const {backendurl} = useContext(AppContent)
-  // Theme (no localStorage)
-  const [theme, setTheme] = useState("light");
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
+  // Configure API base and path ONCE to prevent 404s
+  const API = backendurl || "http://localhost:5000"; // your backend origin
+  const JOB_PATH = "/jobcard"; // change if your server mounts at a different base, e.g., "/api/jobcard"
 
-  // State
+  
+
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
 
   const [form, setForm] = useState({
-    jobcardID: "",
-    customerName: "",
-    email: "",
+    jobcardNo: "",
+    jobStatus: "pending",
+    date: toInputYMD(new Date()),
+    name: "",
     mobileno: "",
+    regno: "",
     address: "",
-    date: new Date().toISOString().slice(0, 10),
-    RegNo: "",
+    email: "",
     vehicleModel: "",
     brand: "",
-    dieselOrPetrol: "",
-    kilometers: "",
-    services: [emptyService()],
+    fuelType: "",
+    kilometer: "",
     remarks: "",
-    totalamount: 0,
+    spares: renumber([emptySpare()]),
+    labours: renumber([emptyLabour()]),
+    advancePaid: 0
   });
 
-  // Derived: compute total client-side for display
-  const computedTotal = useMemo(() => {
-    const sum = (form.services || []).reduce(
-      (acc, s) => acc + (Number(s.amount) || 0),
-      0
-    );
-    return sum;
-  }, [form.services]);
+  const totals = useMemo(() => {
+    const sumRows = (rows = []) =>
+      rows.reduce((sum, r) => sum + Math.max(0, Number(r.amount || 0) * Number(r.quantity ?? 1)), 0);
+    const spares = sumRows(form.spares);
+    const labours = sumRows(form.labours);
+    return { spares, labours, grand: spares + labours };
+  }, [form.spares, form.labours]);
 
-  const loadById = async () => {
-    if (isCreate) return;
-    setLoading(true);
-    setErr("");
+  const financials = useMemo(() => {
+    const advance = Number(form.advancePaid || 0);
+    const balance = Math.max(0, Number(totals.grand || 0) - advance);
+    return { advance, balance };
+  }, [form.advancePaid, totals]);
+
+  const autoStatus = useMemo(() => {
+    const sp = (form.spares || []).every((s) => !!s.done);
+    const lb = (form.labours || []).every((l) => !!l.done);
+    return sp && lb ? "completed" : "pending";
+  }, [form.spares, form.labours]);
+
+  const statusClass = useMemo(() => {
+    switch ((form.jobStatus || "").toLowerCase()) {
+      case "completed": return "badge badge-green";
+      case "closed": return "badge badge-gray";
+      default: return "badge badge-amber";
+    }
+  }, [form.jobStatus]);
+
+  const assignNextJobNo = async () => {
     try {
-      const res = await axios.get( backendurl + `/jobcard/${id}`);
-      const d = res.data || {};
-      setForm({
-        jobcardID: d.jobcardID || "",
-        customerName: d.customerName || "",
-        email: d.email || "",
-        mobileno: d.mobileno || "",
-        address: d.address || "",
-        date: d.date ? new Date(d.date).toISOString().slice(0, 10) : "",
-        RegNo: d.RegNo || "",
-        vehicleModel: d.vehicleModel || "",
-        brand: d.brand || "",
-        dieselOrPetrol: d.dieselOrPetrol || "",
-        kilometers: d.kilometers || "",
-        services:
-          Array.isArray(d.services) && d.services.length
-            ? d.services.map((s) => ({
-                description: s.description || "",
-                amount: s.amount ?? "",
-              }))
-            : [emptyService()],
-        remarks: d.remarks || "",
-        totalamount: d.totalamount || 0,
+      const res = await axios.get(`${API}${JOB_PATH}/list`);
+      const list = Array.isArray(res.data?.data) ? res.data.data : [];
+      const year = new Date().getFullYear();
+      let max = 0;
+      list.forEach((jc) => {
+        const p = parseJobNo(jc.jobcardNo || jc.jobcardID);
+        if (p && p.year === year) max = Math.max(max, p.num);
       });
-    } catch (e) {
-      setErr(e?.response?.data?.message || e?.message || "Failed to load");
-    } finally {
-      setLoading(false);
+      const next = buildJobNo(year, max + 1 || 1);
+      setForm((f) => (f.jobcardNo ? f : { ...f, jobcardNo: next }));
+    } catch {
+      const year = new Date().getFullYear();
+      const seed = Date.now() % 100000;
+      setForm((f) => (f.jobcardNo ? f : { ...f, jobcardNo: buildJobNo(year, seed) }));
     }
   };
 
   useEffect(() => {
-    loadById();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
-  const onChange = (e) => {
-    const { name, value } = e.target;
-    setForm((f) => ({ ...f, [name]: value }));
-  };
-
-  const onServiceChange = (idx, key, value) => {
-    setForm((f) => {
-      const next = [...(f.services || [])];
-      next[idx] = { ...next[idx], [key]: key === "amount" ? value : value };
-      return { ...f, services: next };
-    });
-  };
-
-  const addService = () =>
-    setForm((f) => ({ ...f, services: [...(f.services || []), emptyService()] }));
-
-  const removeService = (idx) =>
-    setForm((f) => ({
-      ...f,
-      services: (f.services || []).filter((_, i) => i !== idx),
-    }));
-
-  const toPayload = () => {
-    const p = {
-      customerName: form.customerName,
-      email: form.email || undefined,
-      mobileno: form.mobileno,
-      address: form.address || undefined,
-      date: form.date || undefined,
-      RegNo: form.RegNo,
-      vehicleModel: form.vehicleModel,
-      brand: form.brand || undefined,
-      dieselOrPetrol: form.dieselOrPetrol || undefined,
-      kilometers: form.kilometers || undefined,
-      remarks: form.remarks || undefined,
-      services: (form.services || []).map((s) => ({
-        description: String(s.description || "").trim(),
-        amount: Number(s.amount || 0),
-      })),
+    const load = async () => {
+      if (isCreate) {
+        await assignNextJobNo();
+        setForm((f) => ({ ...f, jobStatus: autoStatus }));
+        return;
+      }
+      setLoading(true); setErr("");
+      try {
+        const res = await axios.get(`${API}${JOB_PATH}/${id}`);
+        const d = res.data?.data || {};
+        const sparesDB = Array.isArray(d.spares)
+          ? d.spares.map((s) => ({
+              description: s.description || "",
+              quantity: s.quantity ?? 1,
+              amount: s.amount ?? "",
+              done: !!s.done
+            }))
+          : [];
+        const laboursDB = Array.isArray(d.labours)
+          ? d.labours.map((l) => ({
+              description: l.description || "",
+              quantity: l.quantity ?? 1,
+              amount: l.amount ?? "",
+              done: !!l.done
+            }))
+          : [];
+        setForm({
+          jobcardNo: d.jobcardNo || d.jobcardID || "",
+          jobStatus: String(d.jobStatus || d.status || autoStatus || "pending"),
+          date: d.date ? toInputYMD(d.date) : "",
+          name: d.name || d.customerName || "",
+          mobileno: d.mobileno || "",
+          regno: d.regno || d.RegNo || "",
+          address: d.address || "",
+          email: d.email || "",
+          vehicleModel: d.vehicleModel || "",
+          brand: d.brand || "",
+          fuelType: d.fuelType || d.dieselOrPetrol || "",
+          kilometer: d.kilometer || d.kilometers || "",
+          remarks: d.remarks || "",
+          spares: renumber(sparesDB.length ? sparesDB : [emptySpare()]),
+          labours: renumber(laboursDB.length ? laboursDB : [emptyLabour()]),
+          advancePaid: Number(d.advancePaid || 0)
+        });
+      } catch (e) {
+        setErr(e?.response?.data?.message || e?.message || "Failed to load");
+      } finally {
+        setLoading(false);
+      }
     };
-    return p;
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, isCreate, API, JOB_PATH]);
+
+  // Handlers (renumber only on add/remove)
+  const onField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const onSpare = (i, k, v) =>
+    setForm((f) => {
+      const next = [...(f.spares || [])];
+      next[i] = { ...next[i], [k]: v };
+      return { ...f, spares: next };
+    });
+  const onLabour = (i, k, v) =>
+    setForm((f) => {
+      const next = [...(f.labours || [])];
+      next[i] = { ...next[i], [k]: v };
+      return { ...f, labours: next };
+    });
+
+  const addSpareRow = () =>
+    setForm((f) => ({ ...f, spares: renumber([...(f.spares || []), emptySpare()]) }));
+  const addLabourRow = () =>
+    setForm((f) => ({ ...f, labours: renumber([...(f.labours || []), emptyLabour()]) }));
+  const removeSpare = (i) =>
+    setForm((f) => ({ ...f, spares: renumber((f.spares || []).filter((_, idx) => idx !== i)) }));
+  const removeLabour = (i) =>
+    setForm((f) => ({ ...f, labours: renumber((f.labours || []).filter((_, idx) => idx !== i)) }));
+
+  // Validation
+  const validate = () => {
+    if (!form.date || !isYMD(form.date)) return "Date is required";
+    if (!String(form.name).trim()) return "Customer Name is required";
+    if (!String(form.mobileno).trim()) return "Mobile No is required";
+    if (!String(form.regno).trim()) return "Reg No is required";
+    if (!String(form.vehicleModel).trim()) return "Vehicle Model is required";
+    return "";
   };
+
+  // Payload mapping (align keys with controller)
+  const toPayload = () => ({
+    jobcardNo: String(form.jobcardNo || "").trim(),
+    status: String(form.jobStatus || "pending").toLowerCase(), // controller reads body.status
+    date: toDMY(form.date),
+    name: String(form.name || "").trim(),
+    mobileno: String(form.mobileno || "").trim(),
+    regno: String(form.regno || "").trim(),
+    address: String(form.address || "").trim(),
+    email: String(form.email || "").trim(),
+    vehicleModel: String(form.vehicleModel || "").trim(),
+    brand: String(form.brand || "").trim(),
+    fuelType: String(form.fuelType || "").trim(),
+    kilometers: Number(form.kilometer || 0), // controller expects kilometers
+    remarks: String(form.remarks || "").trim(),
+    advancePaid: Number(form.advancePaid || 0),
+    spares: (form.spares || []).map((s, idx) => ({
+      sno: idx + 1,
+      description: String(s.description || "").trim(),
+      quantity: Number(s.quantity || 0),
+      amount: Number(s.amount || 0),
+      done: !!s.done
+    })),
+    labours: (form.labours || []).map((l, idx) => ({
+      sno: idx + 1,
+      description: String(l.description || "").trim(),
+      quantity: Number(l.quantity || 0),
+      amount: Number(l.amount || 0),
+      done: !!l.done
+    }))
+  });
 
   const onSave = async () => {
-    setSaving(true);
-    setErr("");
-    setMsg("");
+    setSaving(true); setMsg(""); setErr("");
     try {
+      if (isCreate && !String(form.jobcardNo).trim()) {
+        await assignNextJobNo();
+      }
+      const v = validate();
+      if (v) { setErr(v); return; }
+      const payload = toPayload();
       if (isCreate) {
-        const res = await axios.post(backendurl + "/jobcard/create", toPayload());
+        const res = await axios.post(`${API}${JOB_PATH}/create`, payload);
+        const newId = res?.data?.data?._id;
         setMsg("Created");
-        const newId = res?.data?._id;
         if (newId) navigate(`/jobcard/${newId}`, { replace: true });
       } else {
-        const res = await axios.put(backendurl + `/jobcard/update/${id}`, toPayload());
+        await axios.put(`${API}${JOB_PATH}/update/${id}`, payload);
         setMsg("Saved");
-        // Refresh from server to reflect backend-calculated totalamount/jobcardID updates
-        if (res?.data?._id) await loadById();
       }
     } catch (e) {
-      const m =
-        e?.response?.data?.message ||
-        e?.message ||
-        (isCreate ? "Create failed" : "Save failed");
-      setErr(m);
-      if (m.toLowerCase().includes("regno")) {
-        // Specific duplicate RegNo feedback
-        setErr("RegNo already exists");
-      }
+      setErr(e?.response?.data?.message || e?.message || (isCreate ? "Create failed" : "Save failed"));
     } finally {
       setSaving(false);
     }
   };
 
   const onDelete = async () => {
-    if (isCreate) {
-      navigate("/jobcardhome");
-      return;
-    }
+    if (isCreate) { navigate("/jobcardhome"); return; }
     if (!window.confirm("Delete this job card?")) return;
     try {
-      await axios.delete(backendurl + `/jobcard/delete/${id}`);
+      await axios.delete(`${API}${JOB_PATH}/delete/${id}`);
       navigate("/jobcardhome", { replace: true });
     } catch (e) {
       setErr(e?.response?.data?.message || e?.message || "Delete failed");
     }
   };
 
-  const printContent = () => {
-    window.print();
+  // PDF
+  const onDownloadPdf = async () => {
+    try {
+      const { jsPDF } = await ensureJsPdf();
+      const doc = new jsPDF("p", "pt", "a4");
+      const totalsNow = totals;
+      const financialsNow = financials;
+      buildJobcardPdf(doc, form, totalsNow, financialsNow);
+      const fname = `${form.jobcardNo || "JobCard"}-${form.regno || ""}.pdf`.replace(/\s+/g, "_");
+      doc.save(fname);
+    } catch {
+      alert("PDF download failed");
+    }
   };
-
-  const downloadHtml = () => {
-    // Create a minimal HTML snapshot of the printable area
-    const content = printRef.current?.innerHTML || "";
-    const full = `
-<!doctype html>
-<html>
-<head>
-<meta charset="utf-8" />
-<title>${form.jobcardID || "Jobcard"}</title>
-<style>
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding: 24px; }
-  h1 { margin: 0 0 8px; }
-  .muted { color: #6b7280; }
-  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-  th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
-  tfoot td { font-weight: 700; }
-</style>
-</head>
-<body>
-${content}
-</body>
-</html>`;
-    const blob = new Blob([full], { type: "text/html" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${form.jobcardID || "jobcard"}.html`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+  const onPrintPdf = async () => {
+    try {
+      const { jsPDF } = await ensureJsPdf();
+      const doc = new jsPDF("p", "pt", "a4");
+      buildJobcardPdf(doc, form, totals, financials);
+      doc.autoPrint();
+      const blob = doc.output("blob");
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, "_blank");
+      setTimeout(() => w && w.focus(), 300);
+    } catch {
+      alert("PDF print failed");
+    }
   };
-
-  const onBack = () => navigate("/jobcardhome");
 
   return (
     <div className="jobcard-page">
       <style>{`
         :root {
-          --bg: #ffffff;
-          --panel: #f6f7f9;
-          --text: #0f172a;
-          --muted: #475569;
-          --border: #e5e7eb;
-          --brand: #0ea5e9;
-          --btn: #0ea5e9;
-          --btn-contrast: #ffffff;
-          --danger: #ef4444;
+          --bg: #ffffff; --panel: #f6f7f9; --text: #0f172a; --muted: #475569; --border: #e5e7eb;
+          --brand: #0ea5e9; --btn: #0ea5e9; --btn-contrast: #ffffff; --danger: #ef4444;
           --shadow: 0 1px 2px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.1);
         }
         [data-theme="dark"] {
-          --bg: #0b1220;
-          --panel: #0f172a;
-          --text: #e5e7eb;
-          --muted: #94a3b8;
-          --border: #1f2937;
-          --brand: #22d3ee;
-          --btn: #22d3ee;
-          --btn-contrast: #0b1220;
-          --danger: #f87171;
+          --bg: #0b1220; --panel: #0f172a; --text: #e5e7eb; --muted: #94a3b8; --border: #1f2937;
+          --brand: #22d3ee; --btn: #22d3ee; --btn-contrast: #0b1220; --danger: #f87171;
           --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 1px 3px rgba(0,0,0,0.5);
         }
-        .jobcard-page { min-height: 100vh; background: var(--bg); color: var(--text); padding: 16px 20px 32px; }
-        .topbar { display: grid; grid-template-columns: 1fr auto; align-items: center; margin-bottom: 12px; gap: 12px; }
-        .brand { display: flex; align-items: center; gap: 12px; cursor: pointer; }
-        .logo { display: block;
-  height: 44px;
-  width: auto;
-  object-fit: contain;
-  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.25));
-  user-select: none;}
+        .jobcard-page { min-height: 100vh; background: var(--bg); color: var(--text); padding: 16px 20px 32px; overflow-x: hidden; }
+        .topbar { display: grid; grid-template-columns: 1fr auto; align-items: start; margin-bottom: 12px; gap: 12px; }
+        .brand { display: flex; align-items: center; gap: 12px; }
+        .logo { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: var(--brand); color: var(--btn-contrast); font-weight: 800; letter-spacing: 0.5px; box-shadow: var(--shadow); }
         .company { font-size: 18px; font-weight: 800; }
         .subtitle { font-size: 12px; color: var(--muted); }
-        .actions { display: flex; align-items: center; gap: 10px; }
-        .btn, .btn-ghost, .btn-danger {
-          border: 1px solid transparent; border-radius: 10px; padding: 10px 14px; font-weight: 600; cursor: pointer; transition: 0.15s ease;
-        }
+
+        .status-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+        .badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; border: 1px solid var(--border); }
+        .badge-amber { background: #fbbf24; color: #1f2937; }
+        .badge-green { background: #22c55e; color: #052e16; }
+        .badge-gray  { background: #cbd5e1; color: #0f172a; }
+
+        .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .btn, .btn-ghost, .btn-danger { border: 1px solid transparent; border-radius: 10px; padding: 10px 14px; font-weight: 600; cursor: pointer; transition: 0.15s ease; }
         .btn { background: var(--btn); color: var(--btn-contrast); }
         .btn:hover { filter: brightness(0.95); }
         .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
         .btn-ghost:hover { background: rgba(148,163,184,0.12); }
         .btn-danger { background: var(--danger); color: #fff; }
+
         .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); margin-bottom: 14px; }
-        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
         .row { display: flex; flex-direction: column; gap: 6px; }
         .row label { font-size: 12px; color: var(--muted); }
-        .row input, .row textarea, .row select {
-          height: 40px; border-radius: 10px; border: 1px solid var(--border);
-          background: var(--bg); color: var(--text); padding: 0 12px; outline: none;
-        }
-        .row textarea { height: 80px; padding: 8px 12px; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { border: 1px solid var(--border); padding: 8px; text-align: left; }
+        .row input, .row select, .row textarea { height: 40px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); padding: 0 12px; outline: none; width: 100%; max-width: 100%; }
+        .row textarea { height: 90px; padding-top: 10px; }
+
+        .table-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th, td { border: 1px solid var(--border); padding: 8px; text-align: left; vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; }
         tfoot td { font-weight: 700; }
-        @media (max-width: 920px) { .grid-2 { grid-template-columns: 1fr; } }
-        @media print {
-          .no-print { display: none !important; }
-          .printable { box-shadow: none; border: none; }
-          body { background: #fff; }
+
+        @media (max-width: 900px) {
+          table, thead, tbody, th, td, tr { display: block; }
+          thead { display: none; }
+          tbody tr { border: 1px solid var(--border); border-radius: 12px; padding: 10px; margin-bottom: 12px; box-shadow: var(--shadow); background: var(--bg); }
+          tbody td { border: none; padding: 6px 0; }
         }
       `}</style>
 
       <div className="topbar">
-        <div className="brand" onClick={() => navigate("/home")} title="Back to Dashboard">
-          <img
-    src={assets.logo}
-    alt="JRR Automobiles"
-    className="logo"
-    height="56"
-    width="auto"
-    draggable="false"
-  />
-          <div>
-            <div className="company">JRR Automobiles</div>
-            <div className="subtitle">{isCreate ? "New Job Card" : "Edit Job Card"}</div>
+        <div>
+          <div className="brand">
+            <div className="logo">JRR</div>
+            <div>
+              <div className="company">JRR Automobiles</div>
+              <div className="subtitle">{isCreate ? "New Job Card" : "Edit Job Card"}</div>
+            </div>
+          </div>
+          <div className="status-row">
+            <span className={statusClass}>{String(form.jobStatus || "pending").toUpperCase()}</span>
+            <span className="badge" style={{ background: "transparent" }}>Job Card: {form.jobcardNo || "-"}</span>
+            <select value={form.jobStatus} onChange={(e) => onField("jobStatus", e.target.value)} className="btn-ghost" style={{ height: 36 }}>
+              <option value="pending">Pending</option>
+              <option value="completed">Completed</option>
+              <option value="closed">Closed</option>
+            </select>
           </div>
         </div>
-        <div className="actions no-print">
-          <button className="btn-ghost" onClick={onBack}>← Jobcards</button>
-          <button className="btn-ghost" onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}>
-            {theme === "dark" ? "Light Theme" : "Dark Theme"}
-          </button>
+        <div className="actions">
+          <button className="btn-ghost" onClick={() => navigate("/jobcardhome")}>← Back</button>
+
           <button className="btn" onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save"}</button>
-          <button className="btn-ghost" onClick={downloadHtml}>Download</button>
-          <button className="btn-ghost" onClick={printContent}>Print</button>
+          <button className="btn-ghost" type="button" onClick={onDownloadPdf}>Download PDF</button>
+          <button className="btn-ghost" type="button" onClick={onPrintPdf}>Print PDF</button>
           <button className="btn-danger" onClick={onDelete}>{isCreate ? "Cancel" : "Delete"}</button>
         </div>
       </div>
@@ -319,119 +513,178 @@ ${content}
       {err && <div className="panel" style={{ color: "#ef4444" }}>{err}</div>}
       {msg && <div className="panel" style={{ color: "#16a34a" }}>{msg}</div>}
 
-      <div className="panel printable" ref={printRef}>
-        <h2 style={{ margin: 0, marginBottom: 8 }}>
-          {form.jobcardID ? `Jobcard ${form.jobcardID}` : "Jobcard"}
-        </h2>
-        <div className="grid-2">
+      <div className="panel">
+        <div className="grid-3">
           <div className="row">
-            <label>Customer Name</label>
-            <input name="customerName" value={form.customerName} onChange={onChange} placeholder="Customer Name" />
+            <label>Grand Total (auto)</label>
+            <input value={`₹ ${Number(totals.grand || 0).toLocaleString("en-IN")}`} readOnly />
           </div>
           <div className="row">
-            <label>Mobile No</label>
-            <input name="mobileno" value={form.mobileno} onChange={onChange} placeholder="10-digit number" />
+            <label>Advance Paid (edit)</label>
+            <input type="number" value={form.advancePaid} onChange={(e) => onField("advancePaid", e.target.value)} min={0} />
           </div>
           <div className="row">
-            <label>Email</label>
-            <input name="email" value={form.email} onChange={onChange} placeholder="Email" />
-          </div>
-          <div className="row">
-            <label>Address</label>
-            <input name="address" value={form.address} onChange={onChange} placeholder="Address" />
-          </div>
-          <div className="row">
-            <label>Date</label>
-            <input type="date" name="date" value={form.date} onChange={onChange} />
-          </div>
-          <div className="row">
-            <label>Vehicle Reg No</label>
-            <input
-              name="RegNo"
-              value={form.RegNo}
-              onChange={(e) => onChange({ target: { name: "RegNo", value: e.target.value.toUpperCase() } })}
-              placeholder="TN01AB1234"
-            />
-          </div>
-          <div className="row">
-            <label>Vehicle Model</label>
-            <input name="vehicleModel" value={form.vehicleModel} onChange={onChange} placeholder="Model" />
-          </div>
-          <div className="row">
-            <label>Brand</label>
-            <input name="brand" value={form.brand} onChange={onChange} placeholder="Brand" />
-          </div>
-          <div className="row">
-            <label>Fuel</label>
-            <select name="dieselOrPetrol" value={form.dieselOrPetrol} onChange={onChange}>
-              <option value="">Select</option>
-              <option value="Petrol">Petrol</option>
-              <option value="Diesel">Diesel</option>
-              <option value="EV">EV</option>
-            </select>
-          </div>
-          <div className="row">
-            <label>Kilometers</label>
-            <input name="kilometers" value={form.kilometers} onChange={onChange} placeholder="e.g., 34500" />
-          </div>
-          <div className="row" style={{ gridColumn: "1 / -1" }}>
-            <label>Remarks</label>
-            <textarea name="remarks" value={form.remarks} onChange={onChange} placeholder="Remarks or notes" />
-          </div>
-        </div>
-
-        <div className="row" style={{ marginTop: 12 }}>
-          <label>Services</label>
-          <table>
-            <thead>
-              <tr>
-                <th style={{ width: 60 }}>S.No</th>
-                <th>Description</th>
-                <th style={{ width: 180 }}>Amount (₹)</th>
-                <th className="no-print" style={{ width: 120 }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(form.services || []).map((s, idx) => (
-                <tr key={idx}>
-                  <td>{idx + 1}</td>
-                  <td>
-                    <input
-                      value={s.description}
-                      onChange={(e) => onServiceChange(idx, "description", e.target.value)}
-                      placeholder="Service description"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      value={s.amount}
-                      onChange={(e) => onServiceChange(idx, "amount", e.target.value)}
-                      placeholder="0"
-                    />
-                  </td>
-                  <td className="no-print">
-                    <button className="btn-ghost" onClick={() => removeService(idx)}>Remove</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colSpan={2}>Total</td>
-                <td colSpan={2}>₹ {computedTotal.toLocaleString("en-IN")}</td>
-              </tr>
-            </tfoot>
-          </table>
-          <div className="no-print" style={{ marginTop: 8 }}>
-            <button className="btn-ghost" onClick={addService}>+ Add Service</button>
+            <label>Balance (auto)</label>
+            <input value={`₹ ${Number(financials.balance || 0).toLocaleString("en-IN")}`} readOnly />
           </div>
         </div>
       </div>
 
       <div className="panel">
-        <div style={{ fontSize: 12, color: "var(--muted)" }}>
-          Note: Total shown is computed on the client for preview; the server also normalizes services and recalculates totalamount on save. 
+        <div className="grid-3">
+          <div className="row">
+            <label>Date</label>
+            <input type="date" value={form.date} onChange={(e) => onField("date", e.target.value)} />
+          </div>
+          <div className="row">
+            <label>Customer Name</label>
+            <input value={form.name} onChange={(e) => onField("name", e.target.value)} placeholder="Customer name" />
+          </div>
+          <div className="row">
+            <label>Mobile No</label>
+            <input value={form.mobileno} onChange={(e) => onField("mobileno", e.target.value)} placeholder="98765 43210" />
+          </div>
+        </div>
+
+        <div className="grid-3" style={{ marginTop: 10 }}>
+          <div className="row">
+            <label>Email</label>
+            <input value={form.email} onChange={(e) => onField("email", e.target.value)} placeholder="you@example.com" />
+          </div>
+          <div className="row">
+            <label>Reg No</label>
+            <input value={form.regno} onChange={(e) => onField("regno", e.target.value.toUpperCase())} placeholder="TN00AB1234" />
+          </div>
+          <div className="row">
+            <label>Address</label>
+            <input value={form.address} onChange={(e) => onField("address", e.target.value)} placeholder="Address" />
+          </div>
+        </div>
+
+        <div className="grid-3" style={{ marginTop: 10 }}>
+          <div className="row">
+            <label>Vehicle Model</label>
+            <input value={form.vehicleModel} onChange={(e) => onField("vehicleModel", e.target.value)} placeholder="Swift" />
+          </div>
+          <div className="row">
+            <label>Brand</label>
+            <input value={form.brand} onChange={(e) => onField("brand", e.target.value)} placeholder="Maruti" />
+          </div>
+          <div className="row">
+            <label>Fuel Type</label>
+            <select value={form.fuelType} onChange={(e) => onField("fuelType", e.target.value)}>
+              <option value="">Select</option>
+              <option value="petrol">Petrol</option>
+              <option value="diesel">Diesel</option>
+              <option value="EV">EV</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid-3" style={{ marginTop: 10 }}>
+          <div className="row">
+            <label>Kilometers</label>
+            <input type="number" value={form.kilometer} onChange={(e) => onField("kilometer", e.target.value)} placeholder="0" />
+          </div>
+        </div>
+
+        <div className="row" style={{ marginTop: 10 }}>
+          <label>Remarks</label>
+          <textarea value={form.remarks} onChange={(e) => onField("remarks", e.target.value)} placeholder="Remarks" />
+        </div>
+      </div>
+
+      {/* Spares */}
+      <div className="panel">
+        <div className="row">
+          <label>Spares</label>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: 80 }}>S.No</th>
+                  <th>Description</th>
+                  <th style={{ width: 140 }}>Amount (₹)</th>
+                  <th style={{ width: 120 }}>Qty</th>
+                  <th style={{ width: 160 }}>Row Total (₹)</th>
+                  <th style={{ width: 120 }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {renumber(form.spares || []).map((s, i) => {
+                  const amt = Number(s.amount || 0);
+                  const qty = Number(s.quantity ?? 1);
+                  const row = Math.max(0, amt * qty);
+                  return (
+                    <tr key={i}>
+                      <td>{i + 1}</td>
+                      <td><input value={s.description} onChange={(e) => onSpare(i, "description", e.target.value)} placeholder="Panel" /></td>
+                      <td><input type="number" value={s.amount} onChange={(e) => onSpare(i, "amount", e.target.value)} min={0} /></td>
+                      <td><input type="number" value={s.quantity} onChange={(e) => onSpare(i, "quantity", e.target.value)} min={0} /></td>
+                      <td><input value={`₹ ${row.toLocaleString("en-IN")}`} readOnly /></td>
+                      <td><button className="btn-ghost" onClick={() => removeSpare(i)}>Remove</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>Total</td>
+                  <td colSpan={5}>₹ {Number(totals.spares || 0).toLocaleString("en-IN")}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <button className="btn-ghost" onClick={addSpareRow}>+ Add Spare</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Labour */}
+      <div className="panel">
+        <div className="row">
+          <label>Labour</label>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: 80 }}>S.No</th>
+                  <th>Description</th>
+                  <th style={{ width: 140 }}>Amount (₹)</th>
+                  <th style={{ width: 120 }}>Qty</th>
+                  <th style={{ width: 160 }}>Row Total (₹)</th>
+                  <th style={{ width: 120 }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {renumber(form.labours || []).map((l, i) => {
+                  const amt = Number(l.amount || 0);
+                  const qty = Number(l.quantity ?? 1);
+                  const row = Math.max(0, amt * qty);
+                  return (
+                    <tr key={i}>
+                      <td>{i + 1}</td>
+                      <td><input value={l.description} onChange={(e) => onLabour(i, "description", e.target.value)} placeholder="Painting" /></td>
+                      <td><input type="number" value={l.amount} onChange={(e) => onLabour(i, "amount", e.target.value)} min={0} /></td>
+                      <td><input type="number" value={l.quantity} onChange={(e) => onLabour(i, "quantity", e.target.value)} min={0} /></td>
+                      <td><input value={`₹ ${row.toLocaleString("en-IN")}`} readOnly /></td>
+                      <td><button className="btn-ghost" onClick={() => removeLabour(i)}>Remove</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>Total</td>
+                  <td colSpan={5}>₹ {Number(totals.labours || 0).toLocaleString("en-IN")}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <button className="btn-ghost" onClick={addLabourRow}>+ Add Labour</button>
+          </div>
         </div>
       </div>
     </div>

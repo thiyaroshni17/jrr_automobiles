@@ -9,11 +9,7 @@ export default function BodyShopHome() {
   const navigate = useNavigate();
   const { backendurl } = useContext(AppContent);
 
-  // Theme (no localStorage)
-  const [theme, setTheme] = useState("light");
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
+  
 
   // Search inputs
   const [date, setDate] = useState("");       // YYYY-MM-DD
@@ -227,9 +223,6 @@ export default function BodyShopHome() {
         </div>
         <div className="actions">
           <button className="btn-ghost" onClick={onDashboard}>← Dashboard</button>
-          <button className="btn-ghost" onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}>
-            {theme === "dark" ? "Light Theme" : "Dark Theme"}
-          </button>
           <button className="btn" onClick={onCreate}>Create New</button>
         </div>
       </div>

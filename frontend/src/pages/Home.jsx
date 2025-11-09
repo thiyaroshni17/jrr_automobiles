@@ -22,13 +22,7 @@ export default function Dashboard() {
     () => window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches,
     []
   );
-  const [theme, setTheme] = useState(
-    localStorage.getItem("theme") || (systemPrefersDark ? "dark" : "light")
-  );
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("theme", theme);
-  }, [theme]);
+ 
 
   const API = import.meta.env.VITE_API_BASE || "";
   const [jobs, setJobs] = useState([]);
@@ -123,10 +117,7 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="actions">
-          <button className="btn ghost" onClick={() => setTheme(t => t === "dark" ? "light" : "dark")}>
-            <span className="icon">{theme === "dark" ? "🌙" : "🌞"}</span>
-            <span className="hide-sm">{theme === "dark" ? "Dark" : "Light"} mode</span>
-          </button>
+         
           <button className="btn solid"  onClick={logout} >Logout</button>
         </div>
       </header>
@@ -139,9 +130,9 @@ export default function Dashboard() {
             <MenuLink href="/pettycashhome" label="Petty Cash" icon="💵" />
             <MenuLink href="/waterwashhome" label="Collection Register W/W" icon="📒" />
             <MenuLink href="/bodyshophome" label="Collection Register B/S" icon="📒" />
-             <MenuLink href="/billcopy" label="Bill copy" icon="📒" />
-            <MenuLink href="/report" label="Report" icon="📊" />
-            <MenuLink href="/enquiry" label="Enquiry" icon="📨" />
+             <MenuLink href="/billcopyhome" label="Bill copy" icon="📒" />
+            <MenuLink href="/reporthome" label="Report" icon="📊" />
+            <MenuLink href="/attendancehome" label="Attendance" icon="📨" />
           </nav>
         </aside>
 

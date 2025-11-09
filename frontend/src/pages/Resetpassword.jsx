@@ -9,13 +9,7 @@ export default function Reset() {
     () => window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches,
     []
   );
-  const [theme, setTheme] = useState(
-    localStorage.getItem("theme") || (systemPrefersDark ? "dark" : "light")
-  );
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("theme", theme);
-  }, [theme]);
+  
 
   // step control
   const [step, setStep] = useState(1);
@@ -110,10 +104,7 @@ export default function Reset() {
           </div>
         </div>
         <div className="actions">
-          <button className="btn ghost" onClick={() => setTheme(t => t === "dark" ? "light" : "dark")}>
-            <span className="icon">{theme === "dark" ? "🌙" : "🌞"}</span>
-            <span className="hide-sm">{theme === "dark" ? "Dark" : "Light"} mode</span>
-          </button>
+          
         </div>
       </header>
 

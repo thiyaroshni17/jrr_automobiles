@@ -1,10 +1,11 @@
 const express = require('express')
 const { register, login, logout, Resetpasswordotp, resetpassword, isauth, userdata } = require('../controller/user.js')
 const userauth = require('../middleware/userauth.js')
-const { createJobCard, updateJobCard, listJobCards,getJobCardById,deleteJobCard, } = require('../controller/jobcard.js')
+
 const { createPettyCash,updatePettyCash,deletePettyCash,listPettyCash,getPettyCashById,addPettyEntry,updatePettyEntry,deletePettyEntry} = require("../controller/pettycash.js");
 const {createWaterWash,updateWaterWash,deleteWaterWash,listWaterWash,getWaterWashById,addWashEntry,updateWashEntry,deleteWashEntry,} = require("../controller/collectionWW.js");
 const {createBodyShop,updateBodyShop,deleteBodyShop,listBodyShop,getBodyShopById,addBodyEntry,updateBodyEntry,deleteBodyEntry,} = require("../controller/collectionBS.JS");
+const ctrl = require('../controller/jobcard'); 
 const Router = express.Router()
 
 Router.post('/register',register)
@@ -16,12 +17,18 @@ Router.post('/resetotp',Resetpasswordotp)
 Router.post('/resetpassword',resetpassword)
 
 
-Router.post('/jobcard/create',createJobCard)
-Router.put('/jobcard/update/:id',updateJobCard)
-Router.get('/jobcard/list', listJobCards);
-Router.get('/jobcard/:id', getJobCardById);
-Router.delete('/jobcard/delete/:id', deleteJobCard);
 
+Router.post('/jobcard/create', ctrl.createJobCard);
+Router.get('/jobcard/list', ctrl.listJobCards);
+Router.get('/jobcard/list/:id', ctrl.getJobCardById);
+Router.put('/jobcard/update/:id', ctrl.updateJobCard);
+Router.delete('/jobcard/delete/:id', ctrl.deleteJobCard);
+Router.post('/jobcard/:id/spares', ctrl.addSpare);
+Router.patch('/jobcard/:id/spares/update/:itemId', ctrl.updateSpare);
+Router.delete('/jobcard/:id/spares/delete/:itemId', ctrl.deleteSpare);
+Router.post('/jobcard/:id/labours', ctrl.addLabour);
+Router.patch('/jobcard/:id/labours/update/:itemId', ctrl.updateLabour);
+Router.delete('/jobcard/:id/labours/delete/:itemId', ctrl.deleteLabour);
 
 Router.post("/pettycash/create", createPettyCash);
 Router.put("/pettycash/update/:id", updatePettyCash);

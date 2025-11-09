@@ -332,3 +332,44 @@ html, body {
   overflow-y: visible;         /* allow vertical growth */
 }
 
+
+/* ===== White background fix (force solid white, disable red gradient/overlays) ===== */
+:root {
+  /* Ensure base background variable is white if used elsewhere */
+  --bg: #ffffff;
+}
+
+html, body, #root, .app {
+  min-height: 100%;
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+}
+
+/* Disable any gradient/overlay layers */
+.hero-bg,
+.hero-overlay,
+.blob,
+.blob-1,
+.blob-2,
+.blob-3 {
+  display: none !important;
+  background: none !important;
+  background-image: none !important;
+  opacity: 0 !important;
+}
+
+/* Make sure the main page wrapper inherits the solid white and allows vertical growth */
+.page,
+.auth-page,
+.hero,
+.auth-main {
+  background: #ffffff !important;
+  background-image: none !important;
+  overflow-y: visible !important;
+}
+
+/* Guard against any remaining gradient declarations */
+* {
+  background-image: none !important;
+}
